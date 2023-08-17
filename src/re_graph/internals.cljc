@@ -263,6 +263,11 @@
            new-db)}
     (when-let [reconnect-timeout (and (not (:destroyed? db))
                                       (get-in db [:ws :reconnect-timeout]))]
+      (log/error "regraph ws closed unexpectedly. instance-id:"
+                 instance-id
+                 " will attempt to reconnect after "
+                 reconnect-timeout
+                 "ms")
       #?(:cljs {:dispatch-later [{:ms reconnect-timeout
                                   :dispatch [::reconnect-ws {:instance-id instance-id}]}]}
          :clj (do
