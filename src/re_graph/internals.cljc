@@ -6,6 +6,7 @@
    #?(:cljs [clojure.core.async :as a])
    #?(:clj [cheshire.core :as json])
    #?(:clj [re-graph.spec :as spec])
+   #?(:clj [re-frame.events :as events])
    [clojure.spec.alpha :as s]
    [re-frame.core :as re-frame]
    [re-frame.interceptor :refer [->interceptor assoc-effect get-coeffect
@@ -241,6 +242,16 @@
              {}
              subscriptions))
 
+#?(:clj
+   (defn- dispatch-after [interval event]
+     (future
+       ;; https://github.com/day8/re-frame-test/issues/14#issuecomment-355723255
+       ;; there's a bug in JVM reframe regarding incorrect capture of the *handling* binding
+       ;; force-setting this to nil tells re-frame that we are not handling an event anymore
+       (binding [events/*handling* nil]
+         (Thread/sleep interval)
+         (re-frame/dispatch event)))))
+
 (re-frame/reg-event-fx
  ::on-ws-close
  (interceptors)
@@ -252,8 +263,11 @@
            new-db)}
     (when-let [reconnect-timeout (and (not (:destroyed? db))
                                       (get-in db [:ws :reconnect-timeout]))]
-      {:dispatch-later [{:ms reconnect-timeout
-                         :dispatch [::reconnect-ws {:instance-id instance-id}]}]}))))
+      #?(:cljs {:dispatch-later [{:ms reconnect-timeout
+                                  :dispatch [::reconnect-ws {:instance-id instance-id}]}]}
+         :clj (do
+                (dispatch-after reconnect-timeout [::reconnect-ws {:instance-id instance-id}])
+                {}))))))
 
 (defn- on-ws-message [instance-id]
   (fn [m]
