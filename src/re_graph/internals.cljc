@@ -1,18 +1,21 @@
 (ns re-graph.internals
-  (:require [re-frame.core :as re-frame]
-            [re-frame.interceptor :refer [->interceptor get-coeffect update-coeffect get-effect assoc-effect]]
-            [re-frame.std-interceptors :as rfi]
-            [re-graph.logging :as log]
-            [re-frame.interop :refer [empty-queue]]
-            [clojure.spec.alpha :as s]
-            [re-graph.spec :as spec]
-            #?@(:cljs [[cljs-http.client :as http]
-                       [cljs-http.core :as http-core]]
-                :clj  [[re-graph.interop :as interop]])
-            #?(:cljs [clojure.core.async :as a])
-            #?(:clj [cheshire.core :as json]))
+  (:require
+   #?@(:cljs [[cljs-http.client :as http]
+              [cljs-http.core :as http-core]]
+       :clj  [[re-graph.interop :as interop]])
+   #?(:cljs [clojure.core.async :as a])
+   #?(:clj [cheshire.core :as json])
+   #?(:clj [re-graph.spec :as spec])
+   [clojure.spec.alpha :as s]
+   [re-frame.core :as re-frame]
+   [re-frame.interceptor :refer [->interceptor assoc-effect get-coeffect
+                                 get-effect update-coeffect]]
+   [re-frame.interop :refer [empty-queue]]
+   [re-frame.std-interceptors :as rfi]
+   [re-graph.logging :as log])
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go]]))
-  #?(:clj (:import [java.util UUID])))
+  #?(:clj (:import
+           [java.util UUID])))
 
 (def default-instance-id ::default)
 
@@ -208,11 +211,11 @@
  ::connection-init
  (interceptors)
  (fn [{:keys [db]} _]
-    (let [ws (get-in db [:ws :connection])
-          payload (get-in db [:ws :connection-init-payload])]
-      (when payload
-        {::send-ws [ws {:type "connection_init"
-                        :payload payload}]}))))
+   (let [ws (get-in db [:ws :connection])
+         payload (get-in db [:ws :connection-init-payload])]
+     (when payload
+       {::send-ws [ws {:type "connection_init"
+                       :payload payload}]}))))
 
 (re-frame/reg-event-fx
  ::on-ws-open
@@ -220,10 +223,10 @@
  (fn [{:keys [db]} {:keys [instance-id websocket]}]
    (merge
     {:db (update db :ws
-                    assoc
-                    :connection websocket
-                    :ready? true
-                    :queue [])}
+                 assoc
+                 :connection websocket
+                 :ready? true
+                 :queue [])}
     (let [resume? (get-in db [:ws :resume-subscriptions?])
           subscriptions (when resume? (->> db :subscriptions vals (map :event)))
           queue (get-in db [:ws :queue])
@@ -301,9 +304,9 @@
      {::connect-ws [instance-id (:ws db)]})))
 
 (re-frame/reg-fx
-  ::connect-ws
-  (fn [[instance-id {:keys [url sub-protocol #?(:clj impl)]}]]
-    #?(:cljs (let [ws (cond
+ ::connect-ws
+ (fn [[instance-id {:keys [url sub-protocol #?(:clj impl)]}]]
+   #?(:cljs (let [ws (cond
                        (nil? sub-protocol)
                        (js/WebSocket. url)
                        :else ;; non-nil sub protocol
@@ -312,12 +315,12 @@
               (aset ws "onopen" (on-open instance-id ws))
               (aset ws "onclose" (on-close instance-id))
               (aset ws "onerror" (on-error instance-id)))
-       :clj  (interop/create-ws url (merge (build-impl impl)
-                                           {:on-open      (on-open instance-id)
-                                            :on-message   (on-ws-message instance-id)
-                                            :on-close     (on-close instance-id)
-                                            :on-error     (on-error instance-id)
-                                            :subprotocols [sub-protocol]})))))
+      :clj  (interop/create-ws url (merge (build-impl impl)
+                                          {:on-open      (on-open instance-id)
+                                           :on-message   (on-ws-message instance-id)
+                                           :on-close     (on-close instance-id)
+                                           :on-error     (on-error instance-id)
+                                           :subprotocols [sub-protocol]})))))
 
 (re-frame/reg-fx
  ::disconnect-ws
@@ -328,12 +331,12 @@
 (defn default-url
   [protocol path]
   #?(:cljs
-          (when (and (exists? js/window) (exists? (.-location js/window)))
-            (let [host-and-port (.-host js/window.location)
-                  ssl? (re-find #"^https" (.-origin js/window.location))]
-              (str protocol (if ssl? "s" "") "://" host-and-port "/" path)))
+     (when (and (exists? js/window) (exists? (.-location js/window)))
+       (let [host-and-port (.-host js/window.location)
+             ssl? (re-find #"^https" (.-origin js/window.location))]
+         (str protocol (if ssl? "s" "") "://" host-and-port "/" path)))
      :clj
-          (str protocol "://localhost/" path)))
+     (str protocol "://localhost/" path)))
 
 (def ws-default-options
   {:url (default-url "ws" "graphql-ws")
