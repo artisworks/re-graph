@@ -24,7 +24,8 @@
   :profiles {:provided {:dependencies [[org.clojure/clojure "1.10.3"]
                                        [org.clojure/clojurescript "1.11.4"]]}
              :dev      {:source-paths   ["dev"
-                                         "hato/src"
+                                         "aleph/src"
+                                         ;;"hato/src"
                                          ;;"clj-http-gniazdo/src"
                                          ]
                         :resource-paths ["dev-resources" "target"]

@@ -1,0 +1,4 @@
+{:paths ["src"]
+ :deps
+ {aleph/aleph {:mvn/version "0.6.3"}
+  metosin/jsonista {:mvn/version "0.3.7"}}}
