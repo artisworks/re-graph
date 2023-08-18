@@ -50,6 +50,7 @@
 (s/def ::connection-init-payload (s/nilable map?))
 (s/def ::supported-operations (s/coll-of #{:query :mutate :subscribe} :kind set? :distinct true :into #{}))
 (s/def ::impl (s/or :map map? :fn fn?))
+(s/def ::callbacks (s/keys :opt-un [::on-open ::on-close ::on-message ::on-error]))
 
 (s/def ::ws (s/nilable
              (s/keys :opt-un [::url
@@ -58,7 +59,8 @@
                               ::resume-subscriptions?
                               ::connection-init-payload
                               ::supported-operations
-                              ::impl])))
+                              ::impl
+                              ::callbacks])))
 
 (s/def ::http (s/nilable
                (s/keys :opt-un [::url

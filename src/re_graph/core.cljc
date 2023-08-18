@@ -4,7 +4,7 @@
    [clojure.string :as string]
    [re-frame.core :as re-frame]
    [re-graph.internals :as internals
-             :refer [interceptors]]
+    :refer [interceptors]]
    [re-graph.logging :as log]
    [re-graph.spec :as spec]))
 

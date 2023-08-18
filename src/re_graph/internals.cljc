@@ -193,20 +193,26 @@
 (re-frame/reg-event-fx
  ::on-ws-data
  (interceptors)
- (fn [{:keys [db]} {:keys [id payload]}]
-   (let [subscription (get-in db [:subscriptions (name id)])]
-     (if-let [callback (:callback subscription)]
-       (if (and (:legacy? subscription)
-                (not= ::callback (first callback)))
-         {:dispatch (conj callback payload)}
-         {:dispatch (update callback 1 assoc :response payload)})
-       (log/warn "No callback found for subscription" id)))))
+ (fn [{:keys [db]} {:keys [instance-id id payload callback]}]
+   (let [subscription (get-in db [:subscriptions (name id)])
+         ret (if-let [callback (:callback subscription)]
+               (if (and (:legacy? subscription)
+                        (not= ::callback (first callback)))
+                 {:dispatch (conj callback payload)}
+                 {:dispatch (update callback 1 assoc :response payload)})
+               (do
+                 (log/warn "No callback found for subscription" id)
+                 nil))]
+     (when callback (callback instance-id payload))
+     ret)))
 
 (re-frame/reg-event-db
  ::on-ws-complete
  (interceptors)
- (fn [db {:keys [id]}]
-   (update-in db [:subscriptions] dissoc (name id))))
+ (fn [db {:keys [instance-id id callback]}]
+   (let [ret (update-in db [:subscriptions] dissoc (name id))]
+     (when callback (callback instance-id {id :complete}))
+     ret)))
 
 (re-frame/reg-event-fx
  ::connection-init
@@ -221,20 +227,22 @@
 (re-frame/reg-event-fx
  ::on-ws-open
  (interceptors)
- (fn [{:keys [db]} {:keys [instance-id websocket]}]
-   (merge
-    {:db (update db :ws
-                 assoc
-                 :connection websocket
-                 :ready? true
-                 :queue [])}
-    (let [resume? (get-in db [:ws :resume-subscriptions?])
-          subscriptions (when resume? (->> db :subscriptions vals (map :event)))
-          queue (get-in db [:ws :queue])
-          to-send (concat [[::connection-init {:instance-id instance-id}]]
-                          subscriptions
-                          queue)]
-      {:dispatch-n (vec to-send)}))))
+ (fn [{:keys [db]} {:keys [instance-id websocket callback]}]
+   (let [ret (merge
+              {:db (update db :ws
+                           assoc
+                           :connection websocket
+                           :ready? true
+                           :queue [])}
+              (let [resume? (get-in db [:ws :resume-subscriptions?])
+                    subscriptions (when resume? (->> db :subscriptions vals (map :event)))
+                    queue (get-in db [:ws :queue])
+                    to-send (concat [[::connection-init {:instance-id instance-id}]]
+                                    subscriptions
+                                    queue)]
+                {:dispatch-n (vec to-send)}))]
+     (when callback (callback instance-id))
+     ret)))
 
 (defn- deactivate-subscriptions [subscriptions]
   (reduce-kv (fn [subs sub-id sub]
@@ -255,26 +263,29 @@
 (re-frame/reg-event-fx
  ::on-ws-close
  (interceptors)
- (fn [{:keys [db]} {:keys [instance-id]}]
-   (merge
-    {:db (let [new-db (-> db
-                          (assoc-in [:ws :ready?] false)
-                          (update :subscriptions deactivate-subscriptions))]
-           new-db)}
-    (when-let [reconnect-timeout (and (not (:destroyed? db))
-                                      (get-in db [:ws :reconnect-timeout]))]
-      (log/error "regraph ws closed unexpectedly. instance-id:"
-                 instance-id
-                 " will attempt to reconnect after "
-                 reconnect-timeout
-                 "ms")
-      #?(:cljs {:dispatch-later [{:ms reconnect-timeout
-                                  :dispatch [::reconnect-ws {:instance-id instance-id}]}]}
-         :clj (do
-                (dispatch-after reconnect-timeout [::reconnect-ws {:instance-id instance-id}])
-                {}))))))
+ (fn [{:keys [db]} {:keys [instance-id callback]}]
+   (let [ret (merge
+              {:db (let [new-db (-> db
+                                    (assoc-in [:ws :ready?] false)
+                                    (update :subscriptions deactivate-subscriptions))]
+                     new-db)}
+              (when-let [reconnect-timeout (and (not (:destroyed? db))
+                                                (get-in db [:ws :reconnect-timeout]))]
+                (log/error "regraph ws closed unexpectedly. instance-id:"
+                           instance-id
+                           " will attempt to reconnect after "
+                           reconnect-timeout
+                           "ms")
+                #?(:cljs {:dispatch-later [{:ms reconnect-timeout
+                                            :dispatch [::reconnect-ws {:instance-id instance-id}]}]}
+                   :clj (do
+                          (dispatch-after reconnect-timeout
+                                          [::reconnect-ws {:instance-id instance-id}])
+                          {}))))]
+     (when callback (callback instance-id))
+     ret)))
 
-(defn- on-ws-message [instance-id]
+(defn- on-ws-message [instance-id message-callback]
   (fn [m]
     (try
       (let [{:keys [type id payload]} (message->data m)]
@@ -282,38 +293,45 @@
           "data"
           (re-frame/dispatch [::on-ws-data {:instance-id instance-id
                                             :id          id
-                                            :payload     payload}])
+                                            :payload     payload
+                                            :callback message-callback}])
 
           "complete"
           (re-frame/dispatch [::on-ws-complete {:instance-id instance-id
-                                                :id          id}])
+                                                :id          id
+                                                :callback message-callback}])
 
           "error"
           (re-frame/dispatch [::on-ws-data {:instance-id instance-id
                                             :id          id
-                                            :payload     {:errors payload}}])
+                                            :payload     {:errors payload}
+                                            :callback message-callback}])
 
-          (log/debug "Ignoring graphql-ws event " instance-id " - " type)))
+          {}
+          #_(log/debug "Ignoring graphql-ws event " instance-id " - " type)))
       (catch #?(:clj Exception :cljs js/Object) e
         (log/error e "Failed to handle graphql-ws event " instance-id " - " m)))))
 
 (defn- on-open
-  ([instance-id]
+  ([instance-id open-callback]
    (fn [websocket]
-     ((on-open instance-id websocket))))
-  ([instance-id websocket]
+     ((on-open instance-id websocket open-callback))))
+  ([instance-id websocket open-callback]
    (fn []
      (log/info "opened ws" instance-id websocket)
      (re-frame/dispatch [::on-ws-open {:instance-id instance-id
-                                       :websocket websocket}]))))
+                                       :websocket websocket
+                                       :callback open-callback}]))))
 
-(defn- on-close [instance-id]
+(defn- on-close [instance-id close-callback]
   (fn [& _args]
-    (re-frame/dispatch [::on-ws-close {:instance-id instance-id}])))
+    (re-frame/dispatch [::on-ws-close {:instance-id instance-id
+                                       :callback close-callback}])))
 
-(defn- on-error [instance-id]
+(defn- on-error [instance-id error-callback]
   (fn [e]
-    (log/warn "GraphQL websocket error" instance-id e)))
+    (log/warn "GraphQL websocket error" instance-id e)
+    (when error-callback (error-callback e))))
 
 (re-frame/reg-event-fx
  ::reconnect-ws
@@ -324,21 +342,21 @@
 
 (re-frame/reg-fx
  ::connect-ws
- (fn [[instance-id {:keys [url sub-protocol #?(:clj impl)]}]]
+ (fn [[instance-id {:keys [url sub-protocol #?(:clj impl) callbacks]}]]
    #?(:cljs (let [ws (cond
                        (nil? sub-protocol)
                        (js/WebSocket. url)
                        :else ;; non-nil sub protocol
                        (js/WebSocket. url sub-protocol))]
-              (aset ws "onmessage" (on-ws-message instance-id))
-              (aset ws "onopen" (on-open instance-id ws))
-              (aset ws "onclose" (on-close instance-id))
-              (aset ws "onerror" (on-error instance-id)))
+              (aset ws "onmessage" (on-ws-message instance-id (:on-message callbacks)))
+              (aset ws "onopen" (on-open instance-id ws (:on-open callbacks)))
+              (aset ws "onclose" (on-close instance-id (:on-close callbacks)))
+              (aset ws "onerror" (on-error instance-id (:on-error callbacks))))
       :clj  (interop/create-ws url (merge (build-impl impl)
-                                          {:on-open      (on-open instance-id)
-                                           :on-message   (on-ws-message instance-id)
-                                           :on-close     (on-close instance-id)
-                                           :on-error     (on-error instance-id)
+                                          {:on-open      (on-open instance-id (:on-open callbacks))
+                                           :on-message   (on-ws-message instance-id (:on-message callbacks))
+                                           :on-close     (on-close instance-id (:on-close callbacks))
+                                           :on-error     (on-error instance-id (:on-error callbacks))
                                            :subprotocols [sub-protocol]})))))
 
 (re-frame/reg-fx
