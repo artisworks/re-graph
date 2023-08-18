@@ -1,5 +1,6 @@
 (ns re-graph.spec
-  (:require [clojure.spec.alpha :as s]))
+  (:require
+   [clojure.spec.alpha :as s]))
 
 ;; primitives
 

@@ -1,11 +1,12 @@
 (ns re-graph.core
-  (:require [re-frame.core :as re-frame]
-            [re-graph.internals :as internals
+  (:require
+   [clojure.spec.alpha :as s]
+   [clojure.string :as string]
+   [re-frame.core :as re-frame]
+   [re-graph.internals :as internals
              :refer [interceptors]]
-            [re-graph.logging :as log]
-            [clojure.string :as string]
-            [clojure.spec.alpha :as s]
-            [re-graph.spec :as spec]))
+   [re-graph.logging :as log]
+   [re-graph.spec :as spec]))
 
 ;; queries and mutations
 
@@ -116,12 +117,12 @@
              (update :subscriptions dissoc id)
              (update-in [:http :requests] dissoc id))}
     (when-let [abort-fn (get-in db [:http :requests id :abort])]
-      {::internals/call-abort abort-fn}) )))
+      {::internals/call-abort abort-fn}))))
 
 (defn abort
   "Abort a pending query or mutation. See ::spec/abort for the arguments"
   [opts]
-   (re-frame/dispatch [::abort opts]))
+  (re-frame/dispatch [::abort opts]))
 
 (s/fdef abort :args (s/cat :opts ::spec/abort))
 
@@ -137,9 +138,9 @@
 
      (get-in db [:ws :ready?])
      {:db (assoc-in db [:subscriptions (name id)] {:callback callback
-                                                                :event [::subscribe event]
-                                                                :active? true
-                                                                :legacy? legacy?})
+                                                   :event [::subscribe event]
+                                                   :active? true
+                                                   :legacy? legacy?})
       ::internals/send-ws [(get-in db [:ws :connection])
                            {:id (name id)
                             :type "start"
@@ -151,10 +152,10 @@
 
      :else
      (log/error
-       (str
-        "Error creating subscription " id
-        " on instance " instance-id
-         ": Websocket is not enabled, subscriptions are not possible. Please check your re-graph configuration")))))
+      (str
+       "Error creating subscription " id
+       " on instance " instance-id
+       ": Websocket is not enabled, subscriptions are not possible. Please check your re-graph configuration")))))
 
 (defn subscribe
   "Create a GraphQL subscription. See ::spec/subscribe for the arguments"
