@@ -183,6 +183,24 @@
 
 (s/fdef unsubscribe :args (s/cat :opts ::spec/unsubscribe))
 
+(re-frame/reg-sub
+ ::subscriptions
+ (fn [db [_ instance-id active?]]
+   (let [subscriptions (-> db
+                           :re-graph
+                           (get instance-id)
+                           :subscriptions)
+         subscriptions (cond->> subscriptions
+                         active? (filter (fn [[_k v]] (:active? v)))
+                         true keys)]
+     subscriptions)))
+
+(defn subscriptions
+  "Return all the subscription ids for the instance.
+  If active? is true, return only active subscriptions"
+  [{:keys [instance-id active?]}]
+  @(re-frame/subscribe [::subscriptions instance-id active?]))
+
 ;; re-graph lifecycle
 
 (re-frame/reg-event-fx
